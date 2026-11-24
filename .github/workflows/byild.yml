@@ -1,0 +1,47 @@
+name: Build Craftgram
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install NDK and CMake
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null || true
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "ndk;21.4.7075529" "cmake;3.10.2.4988404"
+
+      - name: Inject API keys
+        run: |
+          BV=$(find . -name BuildVars.java | head -n 1)
+          echo "Found BuildVars: $BV"
+          sed -i -E "s/APP_ID *= *[0-9]+/APP_ID = ${{ secrets.TELEGRAM_API_ID }}/g" "$BV"
+          sed -i -E "s/APP_HASH *= *\"[^\"]*\"/APP_HASH = \"${{ secrets.TELEGRAM_API_HASH }}\"/g" "$BV"
+          grep -n "APP_ID\|APP_HASH" "$BV" | head -n 10
+
+      - name: Build APK
+        run: |
+          chmod +x gradlew
+          ./gradlew :TMessagesProj_App:assembleAfatDebug --no-daemon --stacktrace
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/21.4.7075529
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: craftgram-apk
+          path: '**/build/outputs/apk/**/*.apk'
+          if-no-files-found: error
